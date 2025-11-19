@@ -48,7 +48,7 @@ By modifying the source code, you can select any architecture listed in Transfor
 Overall, our goal is to adopt a graph-based perspective to better understand—and ultimately control—the behaviors of LLMs.
 
 ----
-Further TODO:
+TODO:
 
 1. Update our data of attribution graphs
 
