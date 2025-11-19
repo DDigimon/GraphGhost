@@ -161,7 +161,7 @@ if __name__ =='__main__':
     node_ratio = 0.4
 
     name = 'Qwen3-0.6B'
-    cache_root = "/egr/research-dselab/daixinna/shared/huggingface_path"
+    cache_root = "huggingface_path"
     
     
     cuda_range = [1]
@@ -192,11 +192,11 @@ if __name__ =='__main__':
     acts_func = 'relu'
     train_dataset_name = 'maw'
     
-    save_path = f'/egr/research-dselab/shared/daixinna/GLLM/{name}_{train_dataset_name}_{edge_ratio}_{node_ratio}/'
-    save_graph_path = f'/egr/research-dselab/shared/daixinna/GLLM/graph_{name}_{train_dataset_name}_{edge_ratio}_{node_ratio}/'
+    save_path = f'save/{name}_{train_dataset_name}_{edge_ratio}_{node_ratio}/'
+    save_graph_path = f'save_graph/graph_{name}_{train_dataset_name}_{edge_ratio}_{node_ratio}/'
 
-    transcoder_save_path = f'/egr/research-dselab/shared/transcoder_model/{acts_func}_{name}_{train_dataset_name}'
-    transcoder_model_save_path = f'/egr/research-dselab/shared/transcoder_model/{acts_func}_{name}_{train_dataset_name}'
+    transcoder_save_path = f'transcoder_model/{acts_func}_{name}_{train_dataset_name}'
+    transcoder_model_save_path = f'transcoder_model/{acts_func}_{name}_{train_dataset_name}'
 
     transcoder_config_path = os.path.join(transcoder_save_path,'config.json')
     configs = Configs.init_load(transcoder_config_path)

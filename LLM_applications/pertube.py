@@ -286,8 +286,8 @@ if __name__ == '__main__':
     node_ratio = 0.4
     alpha = 1
     l1_co = 0.00005
-    save_path = f'/egr/research-dselab/shared/daixinna/GLLM/{name}_{train_dataset_name}_{edge_ratio}_{node_ratio}_{l1_co}/'
-    save_graph_path = f'/egr/research-dselab/shared/daixinna/GLLM/graph_{name}_{train_dataset_name}_{edge_ratio}_{node_ratio}_{l1_co}/'
+    save_path = f'save/{name}_{train_dataset_name}_{edge_ratio}_{node_ratio}_{l1_co}/'
+    save_graph_path = f'save_graph/graph_{name}_{train_dataset_name}_{edge_ratio}_{node_ratio}_{l1_co}/'
     import os
     idx_list = []
     files = [int(f.split('.')[0]) for f in os.listdir(save_path) if os.path.isfile(os.path.join(save_path, f))]
@@ -363,7 +363,7 @@ if __name__ == '__main__':
         special_token_collect.append(( int(n.split('_')[1]), tokenizer(n.split('_')[0])['input_ids'][-1]))
 
 
-    cache_root = "/egr/research-dselab/daixinna/shared/huggingface_path"
+    cache_root = "huggingface_path"
 
     dataset = load_dataset("gsm8k", "main", cache_dir=cache_root)
     test = dataset["test"]

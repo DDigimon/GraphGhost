@@ -2,7 +2,7 @@ import logging
 logging.getLogger().setLevel(logging.ERROR)
 import os
 
-cache_root = "/egr/research-dselab/daixinna/shared/huggingface_path"
+cache_root = "huggingface_path"
 
 os.environ["HF_HOME"] = cache_root  
 import transformers

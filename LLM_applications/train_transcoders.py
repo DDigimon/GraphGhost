@@ -2,7 +2,7 @@ import os
 import gc
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-cache_root = "/egr/research-dselab/daixinna/shared/huggingface_path"
+cache_root = "huggingface_path"
 
 os.environ["HF_HOME"] = cache_root  
 
@@ -58,9 +58,9 @@ l1_co = 0.00005
 max_length = 200
 total_training_tokens = 5_000_000
 
-transcoder_save_path = f'/egr/research-dselab/shared/transcoder_model/{acts_func}_{name}_{train_dataset_name}'
+transcoder_save_path = f'/transcoder_model/{acts_func}_{name}_{train_dataset_name}'
 
-activate_cache_dir = '/egr/research-dselab/shared/daixinna/huggingface_path/activations_cache'
+activate_cache_dir = 'activations_cache'
 
 if os.path.exists(activate_cache_dir) == False:
     os.makedirs(activate_cache_dir)
