@@ -50,6 +50,8 @@ Overall, our goal is to adopt a graph-based perspective to better understand—a
 ----
 Download Example model at: https://huggingface.co/DDigimon/graph_ghost_model
 Download Example graphs at: https://huggingface.co/datasets/DDigimon/graph_ghost_data
+----
+Contact: daipigeon1[at]gmail
 
 ----
 TODO:
