@@ -1,6 +1,6 @@
 ## Example code for decoder-only transformer on graph tasks and interpretation with circuit tracer
 
-This is the code for [Uncovering Graph Reasoning in Decoder-only Transformers with Circuit Tracing](https://arxiv.org/abs/2509.20336) (Neurips 2025 Efficient Reasoning Spotlight) and [GraphGhost: Tracing Structures Behind Large Language Models](https://arxiv.org/abs/2510.08613) (arxiv)
+This is the code for [Uncovering Graph Reasoning in Decoder-only Transformers with Circuit Tracing](https://arxiv.org/abs/2509.20336) (Neurips 2025 Efficient Reasoning WorkShop Spotlight) and [GraphGhost: Tracing Structures Behind Large Language Models](https://arxiv.org/abs/2510.08613) (arxiv)
 
 We provide a summary of the Circuit Tracer code to offer a simplified tutorial for constructing your own datasets and pretrained/finetuned models. 
 
@@ -34,15 +34,22 @@ Finally, you can open vis_example.ipynb to visualize the attribution graphs and 
 ### 2. How does the circuit tracers show on the pretrained LLMs?
 >LLM_applications
 
-We also apply circuit tracing to LLM reasoning tasks. In addition to interpreting how LLMs predict the next token, we further provide interpretations of:
+We also apply circuit tracing to LLM reasoning tasks. In addition to interpreting how LLMs predict the next token, we first train the transcoder for the given dataset (tutorial.ipynb or train_transcoder.py) we further provide interpretations of:
 
-How LLMs generate a chain of thought
+How LLMs generate a chain of thought (analsyis.ipynb (Analysis1))
 
-How LLMs organize and structure information from a given dataset
+How LLMs organize and structure information from a given dataset (analsyis.ipynb (Analysis2))
 
-How to perturb LLMs based on insights from the previous analyses
+How to perturb LLMs based on insights from the previous analyses (analsyis.ipynb (Analysis3 and Analysis4))
 
-By modifying the source code, you can select any architecture listed in TransformerLens. [TransformerLens](https://transformerlensorg.github.io/TransformerLens/generated/model_properties_table.html). You can also load your own fine-tuned model by adjusting the model loading logic.
+By modifying the source code, you can select any architecture listed in TransformerLens. [TransformerLens](https://transformerlensorg.github.io/TransformerLens/generated/model_properties_table.html). You can also load your own fine-tuned model by adjusting the model loading logic. (Refer to model_load to see how we load deepseek model)
 
 ----
 Overall, our goal is to adopt a graph-based perspective to better understand—and ultimately control—the behaviors of LLMs.
+
+----
+Further TODO:
+
+1. Update our data of attribution graphs
+
+2. Evaluation for transcoder training part
