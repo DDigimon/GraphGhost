@@ -48,8 +48,10 @@ By modifying the source code, you can select any architecture listed in Transfor
 Overall, our goal is to adopt a graph-based perspective to better understand—and ultimately control—the behaviors of LLMs.
 
 ----
+Download Example model at: https://huggingface.co/DDigimon/graph_ghost_model
+Download Example graphs at: https://huggingface.co/datasets/DDigimon/graph_ghost_data
+
+----
 TODO:
 
-1. Update our data of attribution graphs
-
-2. Evaluation for transcoder training part
+1. Evaluation for transcoder training part
