@@ -1,0 +1,543 @@
+import os
+
+import torch
+from datasets import load_dataset
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+from transformer_lens import HookedTransformer
+from datasets import Dataset
+import gc
+import pickle
+import numpy as np
+def get_custom_dataset():
+    data = {
+        "text": ["Hello world", "How are you?", "Fine, thanks!"],
+        "label": [0, 1, 0]
+    }
+    dataset = Dataset.from_dict(data)
+    return dataset
+
+
+class Short_ActivationsStore:
+    """
+    Class for streaming tokens and generating and storing activations
+    while training SAEs. 
+    """
+    def __init__(
+        self, cfg, model: HookedTransformer, create_dataloader: bool = True,
+    ):
+        self.cfg = cfg
+        self.model = model
+        self.lens = self.cfg.max_layer# len(model.blocks)
+        # if cfg.from_pretrained:
+        self.dataset = load_dataset(cfg.dataset_path, split="train", streaming=True)
+        self.iterable_dataset = iter(self.dataset)
+        
+        # check if it's tokenized
+        if "tokens" in next(self.iterable_dataset).keys():
+            self.cfg.is_dataset_tokenized = True
+            print("Dataset is tokenized! Updating config.")
+        elif "text" in next(self.iterable_dataset).keys():
+            self.cfg.is_dataset_tokenized = False
+            print("Dataset is not tokenized! Updating config.")
+            
+        
+        base_path=f'/egr/research-dselab/shared/daixinna/nano-pattern/baby_models'
+            
+        pattern_list=['FFL']
+        define_method_list=['term']
+        define_method=''
+        for t in define_method_list:
+            define_method+=t
+        sub_scale=15000
+        PAD=' <PAD>'
+        triangle_num=[1]
+        triangle_num_string=''
+        for t in triangle_num:
+            triangle_num_string+=str(t)
+        pattern_name_list=''
+        for p in pattern_list:
+            pattern_name_list+=p
+        method='edge'
+
+        meta_path = f'{base_path}/my_meta_{define_method}_{pattern_name_list}_{triangle_num_string}_{method}.pkl'
+        meta_vocab_size = None
+        if os.path.exists(meta_path):
+            with open(meta_path, 'rb') as f:
+                meta = pickle.load(f)
+            meta_vocab_size = meta['vocab_size']# +1
+            question_max_length=meta['max_questions']# +1
+            ans_max_length=meta['max_ans']# +1
+            self.question_max_length = question_max_length
+            self.ans_max_length = ans_max_length
+            print(f"found vocab_size = {meta_vocab_size} (inside {meta_path}) ans_max_length={ans_max_length} question_max_length={question_max_length}")
+        else:
+            print(meta_path)
+            print(os.listdir(base_path))
+        print('ans_max_length',ans_max_length)
+        stoi, itos = meta['stoi'], meta['itos']
+        self.stoi = stoi
+        
+        question_data=np.memmap(f'{base_path}/train_question_{define_method}_{pattern_name_list}_{triangle_num_string}_{method}_{sub_scale}.bin', dtype=np.uint16, mode='r')
+        ans_data=np.memmap(f'{base_path}/train_ans_{define_method}_{pattern_name_list}_{triangle_num_string}_{method}_{sub_scale}.bin', dtype=np.uint16, mode='r')
+        ans_data=ans_data.reshape(-1,ans_max_length).astype(np.int64)
+        question_data=question_data.reshape(-1,question_max_length).astype(np.int64)
+        loaded_train_data={}
+        loaded_train_data['question']=question_data
+        loaded_train_data['ans']=ans_data
+        self.loaded_train_data = loaded_train_data
+        # loaded_val_data={}
+        # val_question_data=np.memmap(f'{base_path}/val_question_{define_method}_{pattern_name_list}_{triangle_num_string}_{method}.bin', dtype=np.uint16, mode='r')
+        # val_ans_data=np.memmap(f'{base_path}/val_ans_{define_method}_{pattern_name_list}_{triangle_num_string}_{method}.bin', dtype=np.uint16, mode='r')
+        # val_ans_data=val_ans_data.reshape(-1,ans_max_length).astype(np.int64)
+        # val_question_data=val_question_data.reshape(-1,question_max_length).astype(np.int64)
+        
+        if create_dataloader:
+            # fill buffer half a buffer, so we can mix it with a new buffer
+            self.storage_buffer_out = None
+            if self.cfg.is_transcoder:
+                # if we're a transcoder, then we want to keep a buffer for our input activations and our output activations
+                self.storage_buffer, self.storage_buffer_out = self.get_buffer(self.cfg.n_batches_in_buffer // 2)
+            else:
+                self.storage_buffer = self.get_buffer(self.cfg.n_batches_in_buffer // 2)
+            self.dataloader = self.get_data_loader()
+    
+    def get_my_batch(self):
+        batch_size = self.cfg.store_batch_size
+        question_data=self.loaded_train_data['question']
+        ans_data=self.loaded_train_data['ans']
+        
+        ix = torch.randint(len(ans_data), (batch_size,))
+        
+        x = torch.from_numpy(question_data[ix,:])
+        y = torch.from_numpy(ans_data[ix,:])
+        # print('x',x.shape)
+        question_end=torch.nonzero(x == self.stoi['<END_Q>'], as_tuple=False)
+
+        x_list=[]
+        y_list=[]
+        for idx in range(batch_size):
+            ans_begin=1
+            
+            ans_end = torch.tensor([[self.ans_max_length-1]],dtype=torch.int64)
+
+            ans=y[idx,:ans_end]
+            # print(y)
+            question_nodes=x[idx,-4:]
+            if idx >= question_end.shape[0]:
+                selected_idx=question_end.shape[0] - 1
+            else:selected_idx=idx
+            question=x[selected_idx,:question_end[selected_idx,1]]
+            provided_ans=y[selected_idx,:]
+            pads_tensor_x=torch.ones(self.question_max_length-question.shape[0]-question_nodes.shape[0])*self.stoi['<PAD>']
+            provide_ans_pads=torch.ones(self.ans_max_length-provided_ans.shape[0])*self.stoi['<PAD>']
+            
+            # x_list.append(torch.cat((question,pads_tensor_x.to(torch.int64),question_nodes.to(torch.int64),provided_ans,provide_ans_pads.to(torch.int64)),0).unsqueeze(0))
+
+            pads_graph=torch.ones(self.question_max_length)*self.stoi['<PAD>']
+            y_list.append(torch.cat((question,pads_tensor_x.to(torch.int64),question_nodes.to(torch.int64),provided_ans),0).unsqueeze(0))
+                
+        # x=torch.cat(x_list,0)
+        y=torch.cat(y_list,0)
+        y_mask=self.stoi['<PAD>']
+        # device_type = 'cuda' if 'cuda' in device else 'cpu'
+        
+
+        return y # x, y,y_mask
+
+    def get_batch_tokens(self):
+        """
+        Streams a batch of tokens from a dataset.
+        """
+
+        batch_size = self.cfg.store_batch_size
+        context_size = self.cfg.context_size
+        device = self.cfg.act_store_device
+
+        batch_tokens = torch.zeros(size=(0, context_size), device=device, dtype=torch.long, requires_grad=False)
+
+        current_batch = []
+        current_length = 0
+
+        # pbar = tqdm(total=batch_size, desc="Filling batches")
+        while batch_tokens.shape[0] < batch_size:
+            if not self.cfg.is_dataset_tokenized:
+                s = next(self.iterable_dataset)["text"]
+                tokens = self.model.to_tokens(
+                    s, 
+                    truncate=True, 
+                    move_to_device=True,
+                    ).squeeze(0)
+                assert len(tokens.shape) == 1, f"tokens.shape should be 1D but was {tokens.shape}"
+            else:
+                tokens = torch.tensor(
+                    next(self.iterable_dataset)["tokens"],
+                    dtype=torch.long,
+                    device=device,
+                    requires_grad=False,
+                )
+            # print(tokens.shape, tokens.device, device)
+            # print(tokens)
+            # exit()
+            token_len = tokens.shape[0]
+
+            # TODO: Fix this so that we are limiting how many tokens we get from the same context.
+            
+            bos_token_id_tensor = torch.tensor([self.model.tokenizer.bos_token_id], device=tokens.device, dtype=torch.long)
+            while token_len > 0 and batch_tokens.shape[0] < batch_size:
+                # Space left in the current batch
+                space_left = context_size - current_length
+                # print(f"Current length: {current_length}, Space left: {space_left}, Batch tokens shape: {batch_tokens.shape}, Current batch length: {len(current_batch)}")
+                # print(f"Token length: {token_len}, Tokens shape: {tokens.shape}, Tokens device: {tokens.device}")
+                # If the current tokens fit entirely into the remaining space
+                if token_len <= space_left:
+                    current_batch.append(tokens[:token_len])
+                    current_length += token_len
+                    break
+
+                else:
+                    # Take as much as will fit
+                    # print(current_batch)
+                    current_batch.append(tokens[:space_left])
+
+                    # Remove used part, add BOS
+                    tokens = tokens[space_left:]
+                    tokens = torch.cat(
+                        (
+                            bos_token_id_tensor,
+                            tokens,
+                        ),
+                        dim=0,
+                    )
+
+                    token_len -= space_left
+                    token_len += 1
+                    current_length = context_size
+
+                # If a batch is full, concatenate and move to next batch
+                if current_length == context_size:
+                    full_batch = torch.cat(current_batch, dim=0)
+                    # print(current_length,batch_tokens.shape[0], batch_size, batch_tokens.device, full_batch.device)
+                    batch_tokens = torch.cat(
+                        (batch_tokens, full_batch.unsqueeze(0)), dim=0
+                    )
+                    current_batch = []
+                    current_length = 0
+
+            # pbar.n = batch_tokens.shape[0]
+            # pbar.refresh()
+        # print(batch_tokens[:batch_size].shape)
+        # exit()
+        return batch_tokens[:batch_size]
+
+    def get_activations(self, batch_tokens, get_loss=False):
+        # TODO: get transcoders working with head indices
+        assert(not (self.cfg.is_transcoder and (self.cfg.hook_point_head_index is not None)))
+        
+        act_name = self.cfg.hook_point
+        hook_point_layer = self.cfg.target_layer
+        # layer_lens = len(self.model.blocks)
+        act_name_list = []
+        hook_point_name_list = []
+        action_lists_in = []
+        action_lists_out = []
+        for l in range(self.lens):
+            act_name_list.append(f'blocks.{l}.ln2.hook_normalized')
+            hook_point_name_list.append(f'blocks.{l}.hook_mlp_out')
+        if self.cfg.hook_point_head_index is not None:
+            activations = self.model.run_with_cache(
+                batch_tokens,
+                names_filter=act_name,
+                stop_at_layer=hook_point_layer+1
+            )[
+                1
+            ][act_name][:,:,self.cfg.hook_point_head_index]
+            
+        else:
+            # if not self.cfg.is_transcoder:
+            if self.cfg.is_sae:
+                activations = self.model.run_with_cache(
+                    batch_tokens,
+                    names_filter=act_name,
+                    stop_at_layer=hook_point_layer+1
+                )[
+                    1
+                ][act_name]
+            # elif self.cfg.is_crosscoder:
+            #     for l in range(self.lens):
+            #         cache = self.model.run_with_cache(
+            #         batch_tokens,
+            #         names_filter=[act_name_list[l], hook_point_name_list[l]],
+            #         stop_at_layer=l+1
+            #         )[1]
+            #         action_lists_in.append(cache[act_name_list[l]])
+            #         action_lists_out.append(cache[hook_point_name_list[l]])
+            #     return action_lists_in,action_lists_out
+            
+            elif self.cfg.is_transcoder:
+                cache = self.model.run_with_cache(
+                    batch_tokens,
+                    names_filter=[act_name, self.cfg.out_hook_point],
+                    stop_at_layer=self.cfg.out_hook_point_layer+1
+                )[1]
+                activations = (cache[act_name], cache[self.cfg.out_hook_point])
+        # print('cache names',cache.keys())
+        # print('act name',act_name,self.cfg.out_hook_point)
+
+        return activations
+
+    def get_buffer(self, n_batches_in_buffer):
+        gc.collect()
+        torch.cuda.empty_cache()
+        
+        context_size = self.cfg.context_size
+        batch_size = self.cfg.store_batch_size
+        d_in = self.cfg.d_in
+        total_size = batch_size * n_batches_in_buffer
+
+        # TODO: get transcoders working with cached activations
+        assert(not (self.cfg.is_transcoder and self.cfg.use_cached_activations))
+        if self.cfg.use_cached_activations:
+            # Load the activations from disk
+            buffer_size = total_size * context_size
+            # Initialize an empty tensor (flattened along all dims except d_in)
+            new_buffer = torch.zeros((buffer_size, d_in), dtype=self.cfg.dtype,
+                                     device=self.cfg.act_store_device)
+            n_tokens_filled = 0
+            
+            # The activations may be split across multiple files,
+            # Or we might only want a subset of one file (depending on the sizes)
+            while n_tokens_filled < buffer_size:
+                # Load the next file
+                # Make sure it exists
+                if not os.path.exists(f"{self.cfg.cached_activations_path}/{self.next_cache_idx}.pt"):
+                    print("\n\nWarning: Ran out of cached activation files earlier than expected.")
+                    print(f"Expected to have {buffer_size} activations, but only found {n_tokens_filled}.")
+                    if buffer_size % self.cfg.total_training_tokens != 0:
+                        print("This might just be a rounding error — your batch_size * n_batches_in_buffer * context_size is not divisible by your total_training_tokens")
+                    print(f"Returning a buffer of size {n_tokens_filled} instead.")
+                    print("\n\n")
+                    new_buffer = new_buffer[:n_tokens_filled]
+                    break
+                activations = torch.load(f"{self.cfg.cached_activations_path}/{self.next_cache_idx}.pt")
+                
+                # If we only want a subset of the file, take it
+                taking_subset_of_file = False
+                if n_tokens_filled + activations.shape[0] > buffer_size:
+                    activations = activations[:buffer_size - n_tokens_filled]
+                    taking_subset_of_file = True
+                
+                # Add it to the buffer
+                new_buffer[n_tokens_filled : n_tokens_filled + activations.shape[0]] = activations
+                
+                # Update counters
+                n_tokens_filled += activations.shape[0]
+                if taking_subset_of_file:
+                    self.next_idx_within_buffer = activations.shape[0]
+                else:
+                    self.next_cache_idx += 1
+                    self.next_idx_within_buffer = 0
+                
+            return new_buffer
+
+        refill_iterator = range(0, batch_size * n_batches_in_buffer, batch_size)
+        # refill_iterator = tqdm(refill_iterator, desc="generate activations")
+
+        # Initialize empty tensor buffer of the maximum required size
+        new_buffer = torch.zeros(
+            (total_size, context_size, d_in),
+            dtype=self.cfg.dtype,
+            device=self.cfg.act_store_device,
+        )
+        # lens = self.cfg.max_layer # len(self.model.blocks)
+        
+        new_buffer_out = None
+        if self.cfg.is_transcoder:
+            new_buffer_out = torch.zeros(
+                (total_size, context_size, self.cfg.d_out),
+                dtype=self.cfg.dtype,
+                device=self.cfg.act_store_device,
+            )
+        
+        # if self.cfg.is_crosscoder:
+        #     buffer_list_out = []
+        #     buffer_list_in = []
+        #     for l in range(self.lens):
+        #         buffer_list_out.append(torch.zeros(
+        #         (total_size, context_size, self.cfg.d_out),
+        #         dtype=self.cfg.dtype,
+        #         device=self.cfg.act_store_device,
+        #         ))
+        #         # print('init',buffer_list_out[l].shape)
+        #         buffer_list_in.append(torch.zeros(
+        #             (total_size, context_size, d_in),
+        #             dtype=self.cfg.dtype,
+        #             device=self.cfg.act_store_device,
+        #         ))
+
+        # Insert activations directly into pre-allocated buffer
+        # pbar = tqdm(total=n_batches_in_buffer, desc="Filling buffer")
+        for refill_batch_idx_start in refill_iterator:
+            refill_batch_tokens = self.get_my_batch()# self.get_batch_tokens()
+            # if not self.cfg.is_transcoder:
+            if self.cfg.is_sae:
+                refill_activations = self.get_activations(refill_batch_tokens)
+                new_buffer[
+                    refill_batch_idx_start : refill_batch_idx_start + batch_size
+                ] = refill_activations
+            # elif self.cfg.is_crosscoder:
+            #     refill_activations_in, refill_activations_out = self.get_activations(refill_batch_tokens)
+            #     for l in range(self.lens):
+            #         buffer_list_out[l] [
+            #         refill_batch_idx_start : refill_batch_idx_start + batch_size
+            #         ] = refill_activations_out[l]
+                    
+            #         buffer_list_in[l] [
+            #         refill_batch_idx_start : refill_batch_idx_start + batch_size
+            #         ] = refill_activations_in[l]
+                    
+                
+                
+            elif self.cfg.is_transcoder:
+                refill_activations_in, refill_activations_out = self.get_activations(refill_batch_tokens)
+                new_buffer[
+                    refill_batch_idx_start : refill_batch_idx_start + batch_size
+                ] = refill_activations_in
+
+                new_buffer_out[
+                    refill_batch_idx_start : refill_batch_idx_start + batch_size
+                ] = refill_activations_out
+            
+            # pbar.update(1)
+
+        new_buffer = new_buffer.reshape(-1, d_in)
+        randperm = torch.randperm(new_buffer.shape[0])
+        new_buffer = new_buffer[randperm]
+
+        if self.cfg.is_transcoder:
+            new_buffer_out = new_buffer_out.reshape(-1, self.cfg.d_out)
+            new_buffer_out = new_buffer_out[randperm]
+
+        if self.cfg.is_transcoder:
+            return new_buffer, new_buffer_out
+        # elif self.cfg.is_crosscoder:
+        #     for l in range(self.lens):
+        #         buffer_list_out[l] = buffer_list_out[l].reshape(-1, self.cfg.d_out)
+        #         randperm = torch.randperm(buffer_list_out[l].shape[0])
+        #         buffer_list_out[l] = buffer_list_out[l][randperm]
+                
+        #         buffer_list_in[l] = buffer_list_in[l].reshape(-1, d_in)
+        #         buffer_list_in[l] = buffer_list_in[l][randperm]
+        #     return buffer_list_in, buffer_list_out
+        else:
+            return new_buffer
+
+    def get_data_loader(self,) -> DataLoader:
+        '''
+        Return a torch.utils.dataloader which you can get batches from.
+        
+        Should automatically refill the buffer when it gets to n % full. 
+        (better mixing if you refill and shuffle regularly).
+        
+        '''
+        
+        batch_size = self.cfg.train_batch_size
+        
+        if self.cfg.is_transcoder:
+            # ugly code duplication if we're a transcoder
+            new_buffer, new_buffer_out = self.get_buffer(self.cfg.n_batches_in_buffer // 2)
+            mixing_buffer = torch.cat(
+                [new_buffer,
+                 self.storage_buffer]
+            )
+            mixing_buffer_out = torch.cat(
+                [new_buffer_out,
+                 self.storage_buffer_out]
+            )
+
+            assert(mixing_buffer.shape[0] == mixing_buffer_out.shape[0])
+            randperm = torch.randperm(mixing_buffer.shape[0])
+            mixing_buffer = mixing_buffer[randperm]
+            mixing_buffer_out = mixing_buffer_out[randperm]
+            
+
+            self.storage_buffer = mixing_buffer[:mixing_buffer.shape[0]//2]
+            self.storage_buffer_out = mixing_buffer_out[:mixing_buffer_out.shape[0]//2]
+
+            # have to properly stack both of our new buffers into the dataloader
+            """stacked_buffers = torch.stack([
+                mixing_buffer[mixing_buffer.shape[0]//2:],
+                mixing_buffer_out[mixing_buffer.shape[0]//2:]
+            ], dim=1)"""
+            catted_buffers = torch.cat([
+                mixing_buffer[mixing_buffer.shape[0]//2:],
+                mixing_buffer_out[mixing_buffer.shape[0]//2:]
+            ], dim=1)
+
+            #dataloader = iter(DataLoader(stacked_buffers, batch_size=batch_size, shuffle=True))
+            dataloader = iter(DataLoader(catted_buffers, batch_size=batch_size, shuffle=True))
+        # elif self.cfg.is_crosscoder:
+        #     buffer_list_in, buffer_list_out = self.get_buffer(self.cfg.n_batches_in_buffer // 2)
+        #     cache_list = []
+        #     for l in range(self.lens):
+        #         # print('buffer_list_in',buffer_list_in[l].shape,buffer_list_out[l].shape, self.storage_buffer[l].shape, self.storage_buffer_out[l].shape)
+        #         mixing_buffer = torch.cat(
+        #             [buffer_list_in[l],
+        #             self.storage_buffer[l]]
+        #         )
+        #         mixing_buffer_out = torch.cat(
+        #             [buffer_list_out[l],
+        #             self.storage_buffer_out[l]]
+        #         )
+
+        #         assert(mixing_buffer.shape[0] == mixing_buffer_out.shape[0])
+        #         randperm = torch.randperm(mixing_buffer.shape[0])
+        #         mixing_buffer = mixing_buffer[randperm]
+        #         mixing_buffer_out = mixing_buffer_out[randperm]
+                
+        #         # self.storage_buffer.append(mixing_buffer[:mixing_buffer.shape[0]//2])
+
+        #         self.storage_buffer[l] = mixing_buffer[:mixing_buffer.shape[0]//2]
+        #         self.storage_buffer_out[l] = mixing_buffer_out[:mixing_buffer_out.shape[0]//2]
+                
+        #         cache_list.append(torch.cat([
+        #             mixing_buffer[mixing_buffer.shape[0]//2:],
+        #             mixing_buffer_out[mixing_buffer.shape[0]//2:]
+        #         ], dim=1).unsqueeze(0))
+           
+        #     catted_buffers = torch.cat(cache_list)
+        #     catted_buffers = catted_buffers.permute(1, 0, 2)
+        #     # self.storage_buffer = torch.cat(self.storage_buffer)
+        #     print('cated_buffer shape',catted_buffers.shape)
+            
+        #     dataloader = iter(DataLoader(catted_buffers, batch_size=batch_size, shuffle=True))
+        else:
+            # 1. # create new buffer by mixing stored and new buffer
+            mixing_buffer = torch.cat(
+                [self.get_buffer(self.cfg.n_batches_in_buffer // 2),
+                 self.storage_buffer]
+            )
+            
+            mixing_buffer = mixing_buffer[torch.randperm(mixing_buffer.shape[0])]
+            
+            # 2.  put 50 % in storage
+            self.storage_buffer = mixing_buffer[:mixing_buffer.shape[0]//2]
+        
+            # 3. put other 50 % in a dataloader
+            dataloader = iter(DataLoader(mixing_buffer[mixing_buffer.shape[0]//2:], batch_size=batch_size, shuffle=True))
+        
+        return dataloader
+    
+    
+    def next_batch(self):
+        """
+        Get the next batch from the current DataLoader. 
+        If the DataLoader is exhausted, refill the buffer and create a new DataLoader.
+        """
+        try:
+            # Try to get the next batch
+            return next(self.dataloader)
+        except StopIteration:
+            # If the DataLoader is exhausted, create a new one
+            self.dataloader = self.get_data_loader()
+            return next(self.dataloader)
