@@ -35,8 +35,8 @@ def load_defined_model(configs, load_path = None):
     return model
 
 
-base_path=f'/egr/research-dselab/shared/daixinna/graph_reasoning/baby_models'
-activate_cache_dir = '/egr/research-dselab/shared/daixinna/activations_cache'
+base_path=f'base'
+activate_cache_dir = 'activations_cache'
 dataset_path = os.path.join(base_path,'datasets')
 
 device = 'cuda:0'
@@ -112,7 +112,7 @@ transcoder_config['dead_feature_threshold'] = 1e-8
 # do not be too small. Better increasing training num instead of large lr
 transcoder_config['lr'] = 1e-3
 
-transcoder_save_path = f'/egr/research-dselab/shared/transcoder_model/{acts_func}_{pattern_name}_{method}_{n_layer}_{d_hid}'
+transcoder_save_path = f'transcoder_model/{acts_func}_{pattern_name}_{method}_{n_layer}_{d_hid}'
 
 
 if os.path.exists(transcoder_save_path) == False:

@@ -1,5 +1,5 @@
 import os
-os.environ['TMPDIR']='/egr/research-dselab/daixinna/temp'
+os.environ['TMPDIR']='tmp'
 
 import torch
 import pickle
@@ -27,9 +27,7 @@ def loading(base_path, pattern_name, method, density, edge_remove_density, d_hid
         test_corpus = pickle.load(f)
 
 
-    base_model_path=f'/egr/research-dselab/shared/daixinna/graph_reasoning/baby_models/datasets'
-
-    with open(os.path.join(base_model_path, f'data/{pattern_name}-{density}.pkl'),'rb') as f:
+    with open(os.path.join(base_path, f'data/{pattern_name}-{density}.pkl'),'rb') as f:
         G = pickle.load(f)
 
     configs_save_path = os.path.join(base_path,f'baby_{pattern_name}_{method}_{n_layer}_{d_hid}_configs.json')
@@ -111,7 +109,7 @@ def eval(test_data_set, tokenizer, model,device, G):
 if __name__ == "__main__":
 
     device = 'cuda:0'
-    base_path=f'/egr/research-dselab/shared/daixinna/graph_reasoning/baby_models'
+    base_path=f'base'
     n_layer = 5
     n = 10
     pattern_name = f'sync{n}'

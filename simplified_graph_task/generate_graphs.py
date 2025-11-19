@@ -150,7 +150,7 @@ def get_sync_graph_data(base_model_path, max_num,method,n,density,pattern_name,e
         pickle.dump(test_corpus,f)
                 
 if __name__ == '__main__':
-    base_model_path=f'/egr/research-dselab/shared/daixinna/graph_reasoning/baby_models/datasets'
+    base_model_path=f'base'
     max_num = 1000000
     method = 'path'
     n = 10

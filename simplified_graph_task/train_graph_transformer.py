@@ -1,7 +1,7 @@
 import os
-os.environ["WANDB_MODE"] = "disabled"
-os.environ['TMPDIR']='/egr/research-dselab/daixinna/temp'
-os.environ["HF_HOME"] = '/egr/research-dselab/daixinna/shared/huggingface_path'
+# os.environ["WANDB_MODE"] = "disabled"
+os.environ['TMPDIR']=''
+os.environ["HF_HOME"] = 'hf_home'
 from transformer_lens import HookedTransformerConfig
 from transformer_lens import HookedTransformer
 import torch
@@ -207,7 +207,7 @@ if __name__ == '__main__':
     d_hid = 128 # 1536# 768# 192
     n_hid = 12
     block_size = 128
-    base_path=f'/egr/research-dselab/shared/daixinna/graph_reasoning/baby_models/'
+    base_path=f'base'
 
     dataset_path = os.path.join(base_path,'datasets')
 
