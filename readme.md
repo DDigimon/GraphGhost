@@ -6,6 +6,9 @@ We provide a summary of the Circuit Tracer code to offer a simplified tutorial f
 
 We build this repo based on [nanoGPT (https://github.com/karpathy/nanoGPT)](https://github.com/karpathy/nanoGPT), [circuit_tracer (https://github.com/safety-research/circuit-tracer/tree/main)](https://github.com/safety-research/circuit-tracer/tree/main) and [transcoder_tracer (https://github.com/jacobdunefsky/transcoder_circuits/tree/master)](https://github.com/jacobdunefsky/transcoder_circuits/tree/master)
 
+Here is the blog for this tutorial:
+[English](https://ddigimon.github.io/posts/2025/11/blog-post-2/) [Chinese](https://zhuanlan.zhihu.com/p/1974770396768265587)
+
 The code is divided into two part:
 
 ### 1. How do decoder-only transformers do the graph reasoning task?
@@ -48,8 +51,10 @@ By modifying the source code, you can select any architecture listed in Transfor
 Overall, our goal is to adopt a graph-based perspective to better understand—and ultimately control—the behaviors of LLMs.
 
 ----
+
 Download Example model at: https://huggingface.co/DDigimon/graph_ghost_model
 Download Example graphs at: https://huggingface.co/datasets/DDigimon/graph_ghost_data
+
 ----
 Contact: daipigeon1[at]gmail
 
